@@ -1,0 +1,143 @@
+import time
+import requests
+import socket
+import psutil
+from plyer import notification  # Notificaciones
+
+# ===============================
+# CONFIGURACIÓN
+# ===============================
+
+PING_INTERVAL = 5               # Segundos entre pings
+PING_FAILURE_LIMIT = 3          # Cuántos pings fallan antes de login
+MAC_CHECK_INTERVAL = 2          # Frecuencia para ver cambio de MAC
+
+CAPTIVE_URL = "https://login.wifi.kpn.com/Home/StartSessionForFree"
+PAYLOAD = {
+    "body": "submitButton=Start+now&FreeLoginModel.RedirectUrl=&X-Requested-With=XMLHttpRequest"
+}
+
+# ===============================
+# FUNCIONES BASE
+# ===============================
+
+def notify(title, message):
+    """Envia notificación del sistema"""
+    try:
+        notification.notify(
+            title=title,
+            message=message,
+            timeout=3
+        )
+    except:
+        pass  # las notificaciones no son críticas
+
+
+def ping(timeout=3):
+    """Prueba conexión real a internet."""
+    try:
+        socket.setdefaulttimeout(timeout)
+        s = socket.socket(socket.AF_INET)
+        s.connect(("8.8.8.8", 53))
+        s.close()
+        return True
+    except:
+        return False
+
+
+def get_mac():
+    """Obtiene MAC actual de wlan0."""
+    interfaces = psutil.net_if_addrs()
+    if "wlan0" not in interfaces:
+        return None
+    for addr in interfaces["wlan0"]:
+        if addr.family == psutil.AF_LINK:
+            return addr.address
+    return None
+
+
+def network_up():
+    """Comprueba que wlan0 esté activa."""
+    stats = psutil.net_if_stats()
+    wlan = stats.get("wlan0")
+    return wlan.isup if wlan else False
+
+
+def captive_login():
+    """Ejecuta POST al portal cautivo."""
+    try:
+        r = requests.post(CAPTIVE_URL, data=PAYLOAD)
+        print("[+] Login enviado correctamente.")
+        notify("Captiva", "Sesión reconectada automáticamente.")
+        return True
+    except Exception as e:
+        print("[!] Error en POST:", e)
+        return False
+
+# ===============================
+# LOOP PRINCIPAL
+# ===============================
+
+def main():
+    print("=== Captiva AutoLogin iniciado ===")
+    notify("Captiva", "Servicio iniciado.")
+
+    last_ping = 0
+    last_mac_check = 0
+    failed_pings = 0
+    old_mac = get_mac()
+
+    while True:
+        now = time.time()
+
+        # -------------------------------------
+        # 1) Verificar cambio de MAC
+        # -------------------------------------
+        if now - last_mac_check >= MAC_CHECK_INTERVAL:
+            current_mac = get_mac()
+
+            if current_mac != old_mac:
+                print("[MAC] Cambio detectado:", current_mac)
+                notify("Captiva", "MAC address cambió → reconectando.")
+                old_mac = current_mac
+                captive_login()
+
+            last_mac_check = now
+
+        # -------------------------------------
+        # 2) Verificar si hay internet
+        # -------------------------------------
+        if now - last_ping >= PING_INTERVAL:
+
+            if not network_up():
+                print("[NET] wlan0 desconectado.")
+                notify("Captiva", "WiFi desconectado.")
+                failed_pings = 0  # reset
+                last_ping = now
+                continue
+
+            if not ping():
+                failed_pings += 1
+                print(f"[NET] Ping fallido ({failed_pings}/{PING_FAILURE_LIMIT})")
+
+                if failed_pings >= PING_FAILURE_LIMIT:
+                    print("[NET] Internet realmente caído → Login")
+                    notify("Captiva", "Internet caído → ejecutando login")
+                    captive_login()
+                    failed_pings = 0
+            else:
+                if failed_pings > 0:
+                    print("[NET] Internet volvió.")
+                    notify("Captiva", "Internet restaurado.")
+                failed_pings = 0
+
+            last_ping = now
+
+        # -------------------------------------
+        # 3) Micro-sleep para no consumir CPU
+        # -------------------------------------
+        time.sleep(0.1)
+
+
+if __name__ == "__main__":
+    main()
