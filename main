@@ -12,9 +12,9 @@ PING_INTERVAL = 5               # Segundos entre pings
 PING_FAILURE_LIMIT = 3          # Cuántos pings fallan antes de login
 MAC_CHECK_INTERVAL = 2          # Frecuencia para ver cambio de MAC
 
-CAPTIVE_URL = "https://login.wifi.kpn.com/Home/StartSessionForFree"
+CAPTIVE_URL = "link of the captivae"
 PAYLOAD = {
-    "body": "submitButton=Start+now&FreeLoginModel.RedirectUrl=&X-Requested-With=XMLHttpRequest"
+    "body": " body of the post"
 }
 
 # ===============================
